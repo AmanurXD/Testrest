@@ -3,88 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DDoS Attack Launcher</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f0f0f0;
-        }
-        .container {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 8px;
-            box-sizing: border-box;
-        }
-        .btn {
-            padding: 10px 20px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .btn:hover {
-            background-color: #0056b3;
-        }
-        .message {
-            margin-top: 20px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-    </style>
+    <title>DDoS Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body>
-    <div class="container">
-        <h1>Launch DDoS Attack</h1>
-        <form action="/launch" method="post">
-            <div class="form-group">
-                <label for="target">Target Site:</label>
-                <input type="text" id="target" name="target" required>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold text-center mb-8">DDoS Manager</h1>
+
+        <div class="bg-white p-6 rounded shadow-md mb-8">
+            <h2 class="text-2xl font-bold mb-4">Launch DDoS Attack</h2>
+            <form id="attackForm">
+                <div class="mb-4">
+                    <label class="block text-gray-700">Target Site</label>
+                    <input type="text" id="target" required class="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700">Total Duration (seconds)</label>
+                    <input type="number" id="duration" required class="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700 transition duration-300">Launch Attack</button>
+            </form>
+        </div>
+
+        <div class="bg-white p-6 rounded shadow-md mb-8">
+            <h2 class="text-2xl font-bold mb-4">Current Attacks</h2>
+            <ul id="attackList" class="list-none p-0">
+                <!-- Attacks will be listed here -->
+            </ul>
+        </div>
+
+        <div class="bg-white p-6 rounded shadow-md">
+            <h2 class="text-2xl font-bold mb-4">Statistics</h2>
+            <div id="stats" class="grid grid-cols-2 gap-4">
+                <div>
+                    <span class="font-semibold">Total Attacks:</span> <span id="totalAttacks">0</span>
+                </div>
+                <div>
+                    <span class="font-semibold">Successful Attacks:</span> <span id="successfulAttacks">0</span>
+                </div>
+                <div>
+                    <span class="font-semibold">Failed Attacks:</span> <span id="failedAttacks">0</span>
+                </div>
+                <div>
+                    <span class="font-semibold">Average Duration:</span> <span id="averageDuration">0</span> seconds
+                </div>
             </div>
-            <div class="form-group">
-                <label for="duration">Total Duration (seconds):</label>
-                <input type="number" id="duration" name="duration" required>
-            </div>
-            <button type="submit" class="btn">Launch Attack</button>
-        </form>
-        <div class="message" id="message"></div>
+        </div>
     </div>
 
     <script>
-        document.querySelector('form').addEventListener('submit', function(event) {
+        document.getElementById('attackForm').addEventListener('submit', function(event) {
             event.preventDefault();
-            const formData = new FormData(this);
-            fetch('/launch', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('message').innerText = data.message;
-            })
-            .catch(error => {
-                document.getElementById('message').innerText = 'Error launching attack.';
-            });
+            const target = document.getElementById('target').value;
+            const duration = parseInt(document.getElementById('duration').value, 10);
+
+            // Simulate launching an attack
+            const attackItem = document.createElement('li');
+            attackItem.className = 'border-b py-2';
+            attackItem.innerHTML = `<span class="font-semibold">Target:</span> ${target} <span class="ml-4 font-semibold">Duration:</span> ${duration} seconds <span class="ml-4 font-semibold">Status:</span> Running`;
+            document.getElementById('attackList').appendChild(attackItem);
+
+            // Simulate attack completion
+            setTimeout(() => {
+                attackItem.querySelector('span:last-child').textContent = 'Completed';
+                updateStats(duration, true);
+            }, duration * 1000);
         });
+
+        function updateStats(duration, isSuccessful) {
+            const totalAttacks = parseInt(document.getElementById('totalAttacks').textContent, 10) + 1;
+            const successfulAttacks = parseInt(document.getElementById('successfulAttacks').textContent, 10) + (isSuccessful ? 1 : 0);
+            const failedAttacks = parseInt(document.getElementById('failedAttacks').textContent, 10) + (isSuccessful ? 0 : 1);
+            const averageDuration = (parseFloat(document.getElementById('averageDuration').textContent) * (totalAttacks - 1) + duration) / totalAttacks;
+
+            document.getElementById('totalAttacks').textContent = totalAttacks;
+            document.getElementById('successfulAttacks').textContent = successfulAttacks;
+            document.getElementById('failedAttacks').textContent = failedAttacks;
+            document.getElementById('averageDuration').textContent = averageDuration.toFixed(2);
+        }
     </script>
 </body>
 </html>
